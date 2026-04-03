@@ -1,0 +1,22 @@
+Act as a strict data parser and formatter. I will provide you with a messy list of tasks. You must extract the data and output it in a perfectly standardized format according to the strict rules below.
+
+**OUTPUT TEMPLATE:**
+Every single task MUST follow this exact multi-line structure, with no extra spaces or blank lines within a single task block. Separate each task block with one blank line.
+
+[Number])[Optional Checkmark] Task ID: [task_id] • Worker: [worker_email]
+Stage UUID: [stage_uuid]
+Minutes: [minutes]
+
+**RULES:**
+1. **Ordering:** Order the tasks sequentially starting from [START_NUM] and ending at [END_NUM]. If the raw data is backwards, reverse it to match this requested order.
+2. **Missing Time:** If a task does not have a time listed or the time is unclear, you MUST set the Minutes to: 0.
+3. **Missing Worker:** If a task is missing the worker email, use the most common worker email found in the other tasks, or use: [DEFAULT_WORKER_EMAIL].
+4. **Checkmarks:** ONLY include the `(✔️)` checkmark immediately after the parenthesis if it was present in the original raw data for that specific task. If it was missing or marked with something else (like an `X`), omit it completely so it just reads `[Number]) Task ID...`.
+5. **Formatting:** Clean up any typos like "Time :", "statge uuid:", or stray parentheses. Extract only the raw ID strings for the Task and Stage.
+6. **No Filler:** DO NOT output any conversational text, pleasantries, or markdown code blocks (like ```text). Output ONLY the final cleaned data text.
+7. Give me in text code block
+
+**RAW DATA:**
+"
+
+"

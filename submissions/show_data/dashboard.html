@@ -1,0 +1,992 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Task Correlation Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+      body {
+        background-color: #f0f4f8;
+        font-family: "Inter", sans-serif;
+      }
+      .card {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
+        padding: 1.5rem;
+        transition: transform 0.2s;
+      }
+      .card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
+      }
+
+      .header-filter {
+        margin-top: 6px;
+        width: 100%;
+        padding: 4px;
+        font-size: 0.75rem;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        background-color: #f8fafc;
+        color: #475569;
+        outline: none;
+        transition: all 0.2s;
+      }
+      .header-filter:focus {
+        border-color: #3b82f6;
+        background-color: #fff;
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+      }
+
+      /* Custom Scrollbar for the table */
+      .table-container::-webkit-scrollbar {
+        height: 8px;
+        width: 8px;
+      }
+      .table-container::-webkit-scrollbar-track {
+        background: #f1f5f9;
+        border-radius: 4px;
+      }
+      .table-container::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 4px;
+      }
+      .table-container::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8;
+      }
+
+      .progress-bar-bg {
+        background-color: #e2e8f0;
+        border-radius: 999px;
+        height: 6px;
+        overflow: hidden;
+      }
+      .progress-bar-fill {
+        height: 100%;
+        border-radius: 999px;
+        transition: width 1s ease-in-out;
+      }
+    </style>
+  </head>
+  <body class="p-4 md:p-8 text-slate-800">
+    <div class="max-w-7xl mx-auto space-y-8">
+      <div
+        class="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-6 rounded-2xl shadow-sm border border-slate-100"
+      >
+        <div>
+          <h1 class="text-3xl font-extrabold text-slate-800 tracking-tight">
+            Task Operations Dashboard
+          </h1>
+          <p class="text-slate-500 mt-1 flex items-center">
+            <span
+              class="w-2 h-2 rounded-full bg-green-500 mr-2 animate-pulse"
+            ></span>
+            Live data from combined_tasks.csv
+          </p>
+        </div>
+        <div
+          id="loadingMessage"
+          class="mt-4 md:mt-0 px-4 py-2 bg-blue-50 text-blue-700 rounded-lg font-semibold animate-pulse"
+        >
+          Loading data...
+        </div>
+        <div
+          id="errorMessage"
+          class="hidden mt-4 md:mt-0 px-4 py-2 bg-red-50 text-red-700 rounded-lg font-semibold border border-red-200"
+        >
+          ⚠️ Could not load CSV. Check local server.
+        </div>
+      </div>
+
+      <div id="dashboardContent" class="hidden space-y-8">
+        <div>
+          <h2 class="text-xl font-bold mb-4 text-slate-700 flex items-center">
+            <svg
+              class="w-5 h-5 mr-2 text-emerald-500"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              ></path>
+            </svg>
+            Financial Overview ($50/Pass | 10% Fee Applied)
+            <span id="exchangeRateBadge" class="ml-3 text-xs font-semibold bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full hidden">💱 1 USD = <span id="rateDisplay">--</span> INR</span>
+            <span id="exchangeRateLoading" class="ml-3 text-xs font-semibold bg-slate-100 text-slate-500 px-3 py-1 rounded-full animate-pulse">Fetching INR rate...</span>
+          </h2>
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div
+              class="card bg-gradient-to-br from-slate-800 to-slate-900 text-white border-0 flex flex-col justify-between"
+            >
+              <div>
+                <h3
+                  class="text-xs font-bold text-slate-300 uppercase tracking-wider"
+                >
+                  Total Net Payout
+                </h3>
+                <div class="flex justify-between items-end mt-1">
+                  <div>
+                    <p id="payTotalNet" class="text-4xl font-black">$0</p>
+                    <p id="payTotalNetINR" class="text-sm font-semibold text-slate-400 mt-0.5">₹0</p>
+                  </div>
+                  <svg
+                    class="w-8 h-8 text-slate-500 opacity-50 mb-1"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3"
+                    ></path>
+                  </svg>
+                </div>
+              </div>
+              <div
+                class="text-xs font-medium text-slate-300 mt-4 border-t border-slate-700 pt-3 flex justify-between"
+              >
+                <span>Gross: <span id="payTotalGross">$0</span></span>
+                <span class="text-rose-400"
+                  >10% Fee: <span id="payTotalFee">-$0</span></span
+                >
+              </div>
+            </div>
+
+            <div
+              class="card bg-gradient-to-br from-blue-500 to-blue-600 text-white border-0 flex flex-col justify-between"
+            >
+              <div>
+                <h3
+                  class="text-xs font-bold text-blue-100 uppercase tracking-wider"
+                >
+                  Hardik's Net
+                </h3>
+                <p id="payHardikNet" class="text-4xl font-black mt-1">$0</p>
+                <p id="payHardikNetINR" class="text-sm font-semibold text-blue-200 mt-0.5">₹0</p>
+              </div>
+              <div
+                class="text-xs font-medium text-blue-100 mt-4 border-t border-blue-400/50 pt-3 flex justify-between"
+              >
+                <span>Gross: <span id="payHardikGross">$0</span></span>
+                <span class="text-rose-200"
+                  >10% Fee: <span id="payHardikFee">-$0</span></span
+                >
+              </div>
+            </div>
+
+            <div
+              class="card bg-gradient-to-br from-emerald-500 to-emerald-600 text-white border-0 flex flex-col justify-between"
+            >
+              <div>
+                <h3
+                  class="text-xs font-bold text-emerald-100 uppercase tracking-wider"
+                >
+                  Arpil's Net
+                </h3>
+                <p id="payArpilNet" class="text-4xl font-black mt-1">$0</p>
+                <p id="payArpilNetINR" class="text-sm font-semibold text-emerald-200 mt-0.5">₹0</p>
+              </div>
+              <div
+                class="text-xs font-medium text-emerald-100 mt-4 border-t border-emerald-400/50 pt-3 flex justify-between"
+              >
+                <span>Gross: <span id="payArpilGross">$0</span></span>
+                <span class="text-rose-200"
+                  >10% Fee: <span id="payArpilFee">-$0</span></span
+                >
+              </div>
+            </div>
+
+            <div
+              class="card bg-gradient-to-br from-amber-500 to-amber-600 text-white border-0 flex flex-col justify-between"
+            >
+              <div>
+                <h3
+                  class="text-xs font-bold text-amber-100 uppercase tracking-wider"
+                >
+                  Sujal's Net
+                </h3>
+                <p id="paySujalNet" class="text-4xl font-black mt-1">$0</p>
+                <p id="paySujalNetINR" class="text-sm font-semibold text-amber-200 mt-0.5">₹0</p>
+              </div>
+              <div
+                class="text-xs font-medium text-amber-100 mt-4 border-t border-amber-400/50 pt-3 flex justify-between"
+              >
+                <span>Gross: <span id="paySujalGross">$0</span></span>
+                <span class="text-rose-200"
+                  >10% Fee: <span id="paySujalFee">-$0</span></span
+                >
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h2 class="text-xl font-bold mb-4 text-slate-700 flex items-center">
+            <svg
+              class="w-5 h-5 mr-2 text-indigo-500"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+              ></path>
+            </svg>
+            Worker Scorecards
+          </h2>
+          <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+            <div
+              id="card-Global"
+              class="card border-t-4 border-slate-700"
+            ></div>
+            <div id="card-Hardik" class="card border-t-4 border-blue-500"></div>
+            <div
+              id="card-Arpil"
+              class="card border-t-4 border-emerald-500"
+            ></div>
+            <div id="card-Sujal" class="card border-t-4 border-amber-500"></div>
+            <div
+              id="card-Unassigned"
+              class="card border-t-4 border-red-500 opacity-90"
+            ></div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div class="card lg:col-span-1">
+            <h3
+              class="text-sm font-bold text-slate-500 uppercase tracking-wide mb-4 text-center"
+            >
+              Volume Distribution
+            </h3>
+            <div class="relative h-56 w-full">
+              <canvas id="pieChart"></canvas>
+            </div>
+          </div>
+          <div class="card lg:col-span-1">
+            <h3
+              class="text-sm font-bold text-slate-500 uppercase tracking-wide mb-4 text-center"
+            >
+              Status Breakdown
+            </h3>
+            <div class="relative h-56 w-full">
+              <canvas id="stackedBarChart"></canvas>
+            </div>
+          </div>
+          <div class="card lg:col-span-1">
+            <h3
+              class="text-sm font-bold text-slate-500 uppercase tracking-wide mb-4 text-center"
+            >
+              Average Time (Mins)
+            </h3>
+            <div class="relative h-56 w-full">
+              <canvas id="timeBarChart"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <div
+          class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden"
+        >
+          <div
+            class="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center"
+          >
+            <h3 class="text-lg font-bold text-slate-700">Data Explorer</h3>
+            <button
+              onclick="clearFilters()"
+              class="bg-white hover:bg-slate-100 text-slate-600 text-sm font-semibold py-1.5 px-4 border border-slate-300 rounded-lg shadow-sm transition-colors flex items-center"
+            >
+              <svg
+                class="w-4 h-4 mr-1.5 text-slate-400"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M4 4h16v2H4V4zm2 4h12v12a2 2 0 01-2 2H8a2 2 0 01-2-2V8zm3 4v6m4-6v6"
+                ></path>
+              </svg>
+              Clear Filters
+            </button>
+          </div>
+
+          <div class="table-container overflow-x-auto">
+            <table class="min-w-full text-left text-sm whitespace-nowrap">
+              <thead class="bg-white border-b border-slate-200">
+                <tr>
+                  <th class="px-5 py-4 align-top w-24">
+                    <div class="font-bold text-slate-700 mb-1">ID Num</div>
+                    <select id="filter-IDNum" class="header-filter">
+                      <option value="">All</option>
+                    </select>
+                  </th>
+                  <th class="px-5 py-4 align-top w-32 bg-slate-50/50">
+                    <div class="font-bold text-slate-700 mb-1">Worker</div>
+                    <select id="filter-Worker" class="header-filter">
+                      <option value="">All</option>
+                    </select>
+                  </th>
+                  <th class="px-5 py-4 align-top w-32">
+                    <div class="font-bold text-slate-700 mb-1">Status</div>
+                    <select id="filter-Status" class="header-filter">
+                      <option value="">All</option>
+                    </select>
+                  </th>
+                  <th class="px-5 py-4 align-top w-24 bg-slate-50/50">
+                    <div class="font-bold text-slate-700 mb-1">Minutes</div>
+                    <select id="filter-Minutes" class="header-filter">
+                      <option value="">All</option>
+                    </select>
+                  </th>
+                  <th class="px-5 py-4 align-top w-40">
+                    <div class="font-bold text-slate-700 mb-1">Date</div>
+                    <select id="filter-Date" class="header-filter">
+                      <option value="">All</option>
+                    </select>
+                  </th>
+                  <th class="px-5 py-4 align-top bg-slate-50/50">
+                    <div class="font-bold text-slate-700 mb-1">Task ID</div>
+                    <select id="filter-TaskID" class="header-filter">
+                      <option value="">All</option>
+                    </select>
+                  </th>
+                </tr>
+              </thead>
+              <tbody
+                id="tableBody"
+                class="divide-y divide-slate-100 bg-white"
+              ></tbody>
+            </table>
+          </div>
+
+          <div
+            id="noResultsMessage"
+            class="hidden text-center py-12 text-slate-500 bg-white"
+          >
+            <svg
+              class="w-12 h-12 mx-auto text-slate-300 mb-3"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              ></path>
+            </svg>
+            No matching records found for the selected filters.
+          </div>
+
+          <div
+            class="bg-slate-50 p-4 border-t border-slate-200 flex flex-col md:flex-row justify-between items-center text-sm font-medium text-slate-600"
+          >
+            <div class="mb-3 md:mb-0">
+              <span
+                id="summaryShowing"
+                class="bg-blue-100 text-blue-800 py-1.5 px-4 rounded-full font-bold shadow-sm"
+                >Showing 0 / 0</span
+              >
+            </div>
+            <div class="flex flex-wrap gap-4 px-2">
+              <span class="flex items-center"
+                ><span
+                  class="w-2.5 h-2.5 bg-emerald-500 rounded-full mr-2 shadow-sm"
+                ></span
+                >Pass:
+                <span id="sumPass" class="font-bold text-slate-800 ml-1"
+                  >0</span
+                ></span
+              >
+              <span class="flex items-center"
+                ><span
+                  class="w-2.5 h-2.5 bg-rose-500 rounded-full mr-2 shadow-sm"
+                ></span
+                >Fail:
+                <span id="sumFail" class="font-bold text-slate-800 ml-1"
+                  >0</span
+                ></span
+              >
+              <span class="flex items-center"
+                ><span
+                  class="w-2.5 h-2.5 bg-amber-400 rounded-full mr-2 shadow-sm"
+                ></span
+                >Pend:
+                <span id="sumPending" class="font-bold text-slate-800 ml-1"
+                  >0</span
+                ></span
+              >
+              <span class="flex items-center"
+                ><span
+                  class="w-2.5 h-2.5 bg-slate-400 rounded-full mr-2 shadow-sm"
+                ></span
+                >N/A:
+                <span id="sumNA" class="font-bold text-slate-800 ml-1"
+                  >0</span
+                ></span
+              >
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      let pieChart, stackedBarChart, timeBarChart;
+      let globalCsvData = [];
+      let usdToInrRate = null; // Will be fetched live
+      const columns = [
+        "ID Num",
+        "Worker",
+        "Status",
+        "Minutes",
+        "Date",
+        "Task ID",
+      ];
+      const PAYOUT_PER_PASS = 50;
+      const FEE_PERCENTAGE = 0.1; // 10% Fee
+      const FALLBACK_INR_RATE = 85.0; // Fallback if API fails
+
+      // Fetch live USD to INR exchange rate
+      async function fetchExchangeRate() {
+        try {
+          const res = await fetch('https://open.er-api.com/v6/latest/USD');
+          const data = await res.json();
+          if (data && data.rates && data.rates.INR) {
+            usdToInrRate = data.rates.INR;
+            document.getElementById('rateDisplay').textContent = usdToInrRate.toFixed(2);
+            document.getElementById('exchangeRateBadge').classList.remove('hidden');
+            document.getElementById('exchangeRateLoading').classList.add('hidden');
+          } else {
+            throw new Error('INR rate not found');
+          }
+        } catch (e) {
+          console.warn('Exchange rate API failed, using fallback:', e);
+          usdToInrRate = FALLBACK_INR_RATE;
+          document.getElementById('rateDisplay').textContent = usdToInrRate.toFixed(2) + ' (offline)';
+          document.getElementById('exchangeRateBadge').classList.remove('hidden');
+          document.getElementById('exchangeRateLoading').classList.add('hidden');
+          document.getElementById('exchangeRateBadge').className = document.getElementById('exchangeRateBadge').className.replace('bg-emerald-100 text-emerald-700', 'bg-amber-100 text-amber-700');
+        }
+      }
+
+      window.onload = async function () {
+        // Fetch exchange rate in parallel with CSV
+        await fetchExchangeRate();
+
+        Papa.parse("combined_tasks.csv", {
+          download: true,
+          header: true,
+          skipEmptyLines: true,
+          complete: function (results) {
+            document.getElementById("loadingMessage").classList.add("hidden");
+            document
+              .getElementById("dashboardContent")
+              .classList.remove("hidden");
+
+            globalCsvData = results.data;
+            processStatsAndCharts(globalCsvData);
+            populateDropdowns(globalCsvData);
+            renderTable(globalCsvData);
+          },
+          error: function (error) {
+            document.getElementById("loadingMessage").classList.add("hidden");
+            document.getElementById("errorMessage").classList.remove("hidden");
+          },
+        });
+      };
+
+      function clearFilters() {
+        columns.forEach(
+          (col) =>
+            (document.getElementById(
+              `filter-${col.replace(/\s+/g, "")}`,
+            ).value = ""),
+        );
+        applyFilters();
+      }
+
+      function populateDropdowns(data) {
+        columns.forEach((col) => {
+          const selectElement = document.getElementById(
+            `filter-${col.replace(/\s+/g, "")}`,
+          );
+          let uniqueValues = [...new Set(data.map((item) => item[col]))].filter(
+            (val) => val !== undefined && val !== "",
+          );
+          uniqueValues.sort((a, b) => {
+            const nA = parseFloat(a),
+              nB = parseFloat(b);
+            return !isNaN(nA) && !isNaN(nB)
+              ? nA - nB
+              : String(a).localeCompare(String(b));
+          });
+          uniqueValues.forEach((val) => {
+            const option = document.createElement("option");
+            option.value = val;
+            option.textContent =
+              val.length > 25 ? val.substring(0, 25) + "..." : val;
+            selectElement.appendChild(option);
+          });
+          selectElement.addEventListener("change", applyFilters);
+        });
+      }
+
+      function applyFilters() {
+        let filtered = globalCsvData;
+        columns.forEach((col) => {
+          const val = document.getElementById(
+            `filter-${col.replace(/\s+/g, "")}`,
+          ).value;
+          if (val !== "") filtered = filtered.filter((row) => row[col] === val);
+        });
+        renderTable(filtered);
+      }
+
+      function renderTable(data) {
+        const tbody = document.getElementById("tableBody");
+        const noRes = document.getElementById("noResultsMessage");
+        let html = "",
+          pass = 0,
+          fail = 0,
+          pend = 0,
+          na = 0;
+
+        if (data.length === 0) {
+          tbody.innerHTML = "";
+          noRes.classList.remove("hidden");
+        } else {
+          noRes.classList.add("hidden");
+          data.forEach((row, index) => {
+            let st = row["Status"] || "N/A";
+            let bg = index % 2 === 0 ? "bg-white" : "bg-slate-50/30";
+            let badge = "";
+
+            if (st.includes("Pass")) {
+              pass++;
+              badge = "bg-emerald-100 text-emerald-800 border-emerald-200";
+            } else if (st.includes("Fail")) {
+              fail++;
+              badge = "bg-rose-100 text-rose-800 border-rose-200";
+            } else if (st.includes("Pending")) {
+              pend++;
+              badge = "bg-amber-100 text-amber-800 border-amber-200";
+            } else {
+              na++;
+              badge = "bg-slate-100 text-slate-600 border-slate-200";
+            }
+
+            html += `
+                        <tr class="${bg} hover:bg-blue-50/50 transition-colors border-b border-slate-100">
+                            <td class="px-5 py-3 text-slate-600">${row["ID Num"] || "-"}</td>
+                            <td class="px-5 py-3 font-bold text-slate-800">${row["Worker"] || "-"}</td>
+                            <td class="px-5 py-3"><span class="px-2.5 py-1 text-xs font-bold rounded-md border ${badge}">${st}</span></td>
+                            <td class="px-5 py-3 text-slate-600 font-mono">${row["Minutes"] || "-"}</td>
+                            <td class="px-5 py-3 text-xs text-slate-500">${row["Date"] || "-"}</td>
+                            <td class="px-5 py-3 text-xs text-slate-400 font-mono truncate max-w-[200px]" title="${row["Task ID"]}">${row["Task ID"] || "-"}</td>
+                        </tr>
+                    `;
+          });
+          tbody.innerHTML = html;
+        }
+
+        document.getElementById("summaryShowing").textContent =
+          `Showing ${data.length} / ${globalCsvData.length}`;
+        document.getElementById("sumPass").textContent = pass;
+        document.getElementById("sumFail").textContent = fail;
+        document.getElementById("sumPending").textContent = pend;
+        document.getElementById("sumNA").textContent = na;
+      }
+
+      function buildScorecardHTML(title, data, isUnassigned = false) {
+        let successRate =
+          data.count > 0 ? Math.round((data.pass / data.count) * 100) : 0;
+        let passPct = data.count > 0 ? (data.pass / data.count) * 100 : 0;
+        let failPct = data.count > 0 ? (data.fail / data.count) * 100 : 0;
+        let pendPct = data.count > 0 ? (data.pending / data.count) * 100 : 0;
+        let naPct = data.count > 0 ? (data.na / data.count) * 100 : 0;
+
+        let srColor =
+          successRate >= 75
+            ? "text-emerald-500"
+            : successRate >= 50
+              ? "text-amber-500"
+              : "text-rose-500";
+        if (isUnassigned) srColor = "text-slate-400";
+
+        return `
+                <div class="flex justify-between items-start mb-4">
+                    <div>
+                        <h3 class="text-xs font-extrabold text-slate-400 uppercase tracking-widest">${title}</h3>
+                        <p class="text-3xl font-black text-slate-800 leading-none mt-1">${data.count}</p>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-xs font-bold text-slate-400 block uppercase">Success</span>
+                        <span class="text-xl font-bold ${srColor}">${isUnassigned ? "-" : successRate + "%"}</span>
+                    </div>
+                </div>
+                <div class="space-y-2 mt-4">
+                    <div class="flex items-center text-xs"><span class="w-10 font-semibold text-emerald-600">Pass</span>
+                        <div class="flex-1 progress-bar-bg mx-2"><div class="progress-bar-fill bg-emerald-500" style="width: ${passPct}%"></div></div>
+                        <span class="w-6 text-right font-bold text-slate-700">${data.pass}</span>
+                    </div>
+                    <div class="flex items-center text-xs"><span class="w-10 font-semibold text-rose-600">Fail</span>
+                        <div class="flex-1 progress-bar-bg mx-2"><div class="progress-bar-fill bg-rose-500" style="width: ${failPct}%"></div></div>
+                        <span class="w-6 text-right font-bold text-slate-700">${data.fail}</span>
+                    </div>
+                    <div class="flex items-center text-xs"><span class="w-10 font-semibold text-amber-500">Pend</span>
+                        <div class="flex-1 progress-bar-bg mx-2"><div class="progress-bar-fill bg-amber-400" style="width: ${pendPct}%"></div></div>
+                        <span class="w-6 text-right font-bold text-slate-700">${data.pending}</span>
+                    </div>
+                    <div class="flex items-center text-xs"><span class="w-10 font-semibold text-slate-500">N/A</span>
+                        <div class="flex-1 progress-bar-bg mx-2"><div class="progress-bar-fill bg-slate-400" style="width: ${naPct}%"></div></div>
+                        <span class="w-6 text-right font-bold text-slate-700">${data.na}</span>
+                    </div>
+                </div>
+            `;
+      }
+
+      // --- Helper function to format currency ---
+      function formatCurrency(amount) {
+        return amount.toLocaleString("en-US", {
+          style: "currency",
+          currency: "USD",
+        });
+      }
+
+      function formatINR(amountUSD) {
+        if (!usdToInrRate) return '₹--';
+        const inrAmount = amountUSD * usdToInrRate;
+        return '₹' + inrAmount.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+      }
+
+      function processStatsAndCharts(data) {
+        let workers = {
+          Global: {
+            count: 0,
+            totalMinutes: 0,
+            pass: 0,
+            fail: 0,
+            pending: 0,
+            na: 0,
+          },
+          Hardik: {
+            count: 0,
+            totalMinutes: 0,
+            pass: 0,
+            fail: 0,
+            pending: 0,
+            na: 0,
+          },
+          Arpil: {
+            count: 0,
+            totalMinutes: 0,
+            pass: 0,
+            fail: 0,
+            pending: 0,
+            na: 0,
+          },
+          Sujal: {
+            count: 0,
+            totalMinutes: 0,
+            pass: 0,
+            fail: 0,
+            pending: 0,
+            na: 0,
+          },
+          "Unassigned/Not Found": {
+            count: 0,
+            totalMinutes: 0,
+            pass: 0,
+            fail: 0,
+            pending: 0,
+            na: 0,
+          },
+        };
+
+        data.forEach((row) => {
+          let wName = row["Worker"];
+          let mins = parseInt(row["Minutes"]);
+          let st = row["Status"] || "";
+
+          let wrk = workers[wName] || null;
+          let glob = workers["Global"];
+
+          if (wrk) {
+            wrk.count++;
+            glob.count++;
+            if (!isNaN(mins)) {
+              wrk.totalMinutes += mins;
+              glob.totalMinutes += mins;
+            }
+
+            if (st.includes("Pass")) {
+              wrk.pass++;
+              glob.pass++;
+            } else if (st.includes("Fail")) {
+              wrk.fail++;
+              glob.fail++;
+            } else if (st.includes("Pending")) {
+              wrk.pending++;
+              glob.pending++;
+            } else {
+              wrk.na++;
+              glob.na++;
+            }
+          } else if (
+            st === "N/A" ||
+            row["ID Num"] === "N/A (Not in Submitted)"
+          ) {
+            workers["Unassigned/Not Found"].count++;
+            glob.count++;
+            workers["Unassigned/Not Found"].na++;
+            glob.na++;
+          }
+        });
+
+        // Inject Scorecard HTML
+        document.getElementById("card-Global").innerHTML = buildScorecardHTML(
+          "Global Total",
+          workers["Global"],
+        );
+        document.getElementById("card-Hardik").innerHTML = buildScorecardHTML(
+          "Hardik",
+          workers["Hardik"],
+        );
+        document.getElementById("card-Arpil").innerHTML = buildScorecardHTML(
+          "Arpil",
+          workers["Arpil"],
+        );
+        document.getElementById("card-Sujal").innerHTML = buildScorecardHTML(
+          "Sujal",
+          workers["Sujal"],
+        );
+        document.getElementById("card-Unassigned").innerHTML =
+          buildScorecardHTML(
+            "Unassigned / NA",
+            workers["Unassigned/Not Found"],
+            true,
+          );
+
+        // --- CALCULATE EARNINGS WITH 10% FEE ---
+
+        // 1. Gross Earnings ($50 per pass)
+        let pH_gross = workers["Hardik"].pass * PAYOUT_PER_PASS;
+        let pA_gross = workers["Arpil"].pass * PAYOUT_PER_PASS;
+        let pS_gross = workers["Sujal"].pass * PAYOUT_PER_PASS;
+        let pTotal_gross = pH_gross + pA_gross + pS_gross;
+
+        // 2. Fees (10%)
+        let pH_fee = pH_gross * FEE_PERCENTAGE;
+        let pA_fee = pA_gross * FEE_PERCENTAGE;
+        let pS_fee = pS_gross * FEE_PERCENTAGE;
+        let pTotal_fee = pTotal_gross * FEE_PERCENTAGE;
+
+        // 3. Net Earnings
+        let pH_net = pH_gross - pH_fee;
+        let pA_net = pA_gross - pA_fee;
+        let pS_net = pS_gross - pS_fee;
+        let pTotal_net = pTotal_gross - pTotal_fee;
+
+        // --- UPDATE DOM WITH FINANCES ---
+
+        // Total
+        document.getElementById("payTotalNet").innerText =
+          formatCurrency(pTotal_net);
+        document.getElementById("payTotalNetINR").innerText =
+          formatINR(pTotal_net);
+        document.getElementById("payTotalGross").innerText =
+          formatCurrency(pTotal_gross);
+        document.getElementById("payTotalFee").innerText =
+          `-${formatCurrency(pTotal_fee)}`;
+
+        // Hardik
+        document.getElementById("payHardikNet").innerText =
+          formatCurrency(pH_net);
+        document.getElementById("payHardikNetINR").innerText =
+          formatINR(pH_net);
+        document.getElementById("payHardikGross").innerText =
+          formatCurrency(pH_gross);
+        document.getElementById("payHardikFee").innerText =
+          `-${formatCurrency(pH_fee)}`;
+
+        // Arpil
+        document.getElementById("payArpilNet").innerText =
+          formatCurrency(pA_net);
+        document.getElementById("payArpilNetINR").innerText =
+          formatINR(pA_net);
+        document.getElementById("payArpilGross").innerText =
+          formatCurrency(pA_gross);
+        document.getElementById("payArpilFee").innerText =
+          `-${formatCurrency(pA_fee)}`;
+
+        // Sujal
+        document.getElementById("paySujalNet").innerText =
+          formatCurrency(pS_net);
+        document.getElementById("paySujalNetINR").innerText =
+          formatINR(pS_net);
+        document.getElementById("paySujalGross").innerText =
+          formatCurrency(pS_gross);
+        document.getElementById("paySujalFee").innerText =
+          `-${formatCurrency(pS_fee)}`;
+
+        renderCharts(workers);
+      }
+
+      function renderCharts(w) {
+        if (pieChart) pieChart.destroy();
+        if (stackedBarChart) stackedBarChart.destroy();
+        if (timeBarChart) timeBarChart.destroy();
+
+        Chart.defaults.font.family = "'Inter', sans-serif";
+        Chart.defaults.color = "#64748b";
+
+        // 1. Doughnut Chart
+        pieChart = new Chart(document.getElementById("pieChart"), {
+          type: "doughnut",
+          data: {
+            labels: ["Hardik", "Arpil", "Sujal", "Unassigned"],
+            datasets: [
+              {
+                data: [
+                  w["Hardik"].count,
+                  w["Arpil"].count,
+                  w["Sujal"].count,
+                  w["Unassigned/Not Found"].count,
+                ],
+                backgroundColor: ["#3b82f6", "#10b981", "#f59e0b", "#f43f5e"],
+                borderWidth: 2,
+                borderColor: "#fff",
+              },
+            ],
+          },
+          options: {
+            maintainAspectRatio: false,
+            cutout: "70%",
+            plugins: {
+              legend: {
+                position: "bottom",
+                labels: { usePointStyle: true, boxWidth: 8 },
+              },
+            },
+          },
+        });
+
+        // 2. Stacked Bar Chart
+        stackedBarChart = new Chart(
+          document.getElementById("stackedBarChart"),
+          {
+            type: "bar",
+            data: {
+              labels: ["Hardik", "Arpil", "Sujal", "Unassg"],
+              datasets: [
+                {
+                  label: "Pass",
+                  data: [
+                    w["Hardik"].pass,
+                    w["Arpil"].pass,
+                    w["Sujal"].pass,
+                    w["Unassigned/Not Found"].pass,
+                  ],
+                  backgroundColor: "#10b981",
+                  borderRadius: 4,
+                },
+                {
+                  label: "Fail",
+                  data: [
+                    w["Hardik"].fail,
+                    w["Arpil"].fail,
+                    w["Sujal"].fail,
+                    w["Unassigned/Not Found"].fail,
+                  ],
+                  backgroundColor: "#f43f5e",
+                  borderRadius: 4,
+                },
+                {
+                  label: "Pend",
+                  data: [
+                    w["Hardik"].pending,
+                    w["Arpil"].pending,
+                    w["Sujal"].pending,
+                    w["Unassigned/Not Found"].pending,
+                  ],
+                  backgroundColor: "#fbbf24",
+                  borderRadius: 4,
+                },
+              ],
+            },
+            options: {
+              maintainAspectRatio: false,
+              scales: {
+                x: { stacked: true, grid: { display: false } },
+                y: {
+                  stacked: true,
+                  beginAtZero: true,
+                  border: { display: false },
+                },
+              },
+              plugins: {
+                legend: {
+                  position: "bottom",
+                  labels: { usePointStyle: true, boxWidth: 8 },
+                },
+              },
+            },
+          },
+        );
+
+        // 3. Time Bar Chart (Avg Minutes)
+        let avgH = w["Hardik"].count
+          ? w["Hardik"].totalMinutes / w["Hardik"].count
+          : 0;
+        let avgA = w["Arpil"].count
+          ? w["Arpil"].totalMinutes / w["Arpil"].count
+          : 0;
+        let avgS = w["Sujal"].count
+          ? w["Sujal"].totalMinutes / w["Sujal"].count
+          : 0;
+
+        timeBarChart = new Chart(document.getElementById("timeBarChart"), {
+          type: "bar",
+          data: {
+            labels: ["Hardik", "Arpil", "Sujal"],
+            datasets: [
+              {
+                label: "Avg Mins",
+                data: [avgH, avgA, avgS],
+                backgroundColor: ["#3b82f6", "#10b981", "#f59e0b"],
+                borderRadius: 6,
+                barThickness: 30,
+              },
+            ],
+          },
+          options: {
+            maintainAspectRatio: false,
+            scales: {
+              x: { grid: { display: false } },
+              y: { beginAtZero: true, border: { display: false } },
+            },
+            plugins: { legend: { display: false } },
+          },
+        });
+      }
+    </script>
+  </body>
+</html>
