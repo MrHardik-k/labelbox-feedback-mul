@@ -895,6 +895,21 @@ def main():
                     f.write(agent_b_text)
                 print(f"Saved Agent B to {agent_b_file} ({len(agent_b_text)} chars)")
 
+                # Skip task if any input file is empty
+                empty_files = []
+                for fname, content in [
+                    ("initial_transcription.txt", initial_text),
+                    ("agent_A_response.txt", agent_a_text),
+                    ("agent_B_response.txt", agent_b_text),
+                ]:
+                    if not content or not content.strip():
+                        empty_files.append(fname)
+                if empty_files:
+                    print(f"\n[SKIP] Task {task_count} skipped: empty input file(s): {', '.join(empty_files)}")
+                    remove_last_task_entry(folder_name)
+                    click_skip_button(driver)
+                    continue
+
                 # ══════════════════════════════════════
                 #  EVALUATE: Claude comparison (with retry)
                 # ══════════════════════════════════════
