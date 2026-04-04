@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(claude.cmd --print \"hello\" --model opus --thinking enabled)",
+      "Bash(where bash:*)",
+      "Bash(\"C:\\\\Program Files\\\\Git\\\\bin\\\\bash.exe\" --version)",
+      "Bash(bash --version)",
+      "Bash(D:/All Apps/Git/bin/bash.exe --version)",
+      "Read(//usr/bin/**)",
+      "Read(//d/All Apps/Git/bin/**)",
+      "Bash(powershell -c \"Get-Command claude.cmd | Select-Object -ExpandProperty Source\")",
+      "Bash(cmd /c \"where claude\")",
+      "Bash(cmd.exe /c \"where.exe claude 2>&1\")",
+      "Bash(cmd /c \"dir D:\\\\Hardik_file\\\\Projects\\\\Ai-projects\\\\labelbox-feedback\\\\venv\\\\Scripts\\\\claude* 2>&1\")",
+      "Bash(npm list:*)",
+      "Read(//c/Users/Admin/AppData/Roaming/npm/**)",
+      "Bash(node \"C:/Users/Admin/AppData/Roaming/npm/node_modules/@anthropic-ai/claude-code/cli.js\" --print \"2+2\" --model opus --thinking enabled)",
+      "Read(//d/All Apps/Git/**)",
+      "Bash(find /d -name bash.exe)",
+      "Bash(CLAUDE_CODE_GIT_BASH_PATH=\"D:/All Apps/Git/Git/bin/bash.exe\" node \"C:/Users/Admin/AppData/Roaming/npm/node_modules/@anthropic-ai/claude-code/cli.js\" --print \"2+2\" --model opus --thinking enabled)",
+      "Bash(CLAUDE_CODE_GIT_BASH_PATH=\"D:\\\\All Apps\\\\Git\\\\Git\\\\bin\\\\bash.exe\" node \"C:/Users/Admin/AppData/Roaming/npm/node_modules/@anthropic-ai/claude-code/cli.js\" --print \"2+2\" --model opus --thinking enabled)"
+    ]
+  }
+}
