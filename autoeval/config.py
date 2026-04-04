@@ -25,8 +25,8 @@ CLAUDE_INIT_WAIT = 30
 CLAUDE_EVAL_TIMEOUT = 900
 
 # Pre-submit wait range (minutes) — random.randint(min, max)
-SUBMIT_WAIT_MIN = 0
-SUBMIT_WAIT_MAX = 1
+SUBMIT_WAIT_MIN = 60
+SUBMIT_WAIT_MAX = 65
 
 # Eval file poll interval (seconds)
 EVAL_FILE_POLL_INTERVAL = 30

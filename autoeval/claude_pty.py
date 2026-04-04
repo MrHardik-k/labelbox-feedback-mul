@@ -248,6 +248,7 @@ class ClaudeController:
         file_map = {
             "RULES LOADED": None,
             "EVAL DONE": "both_agent_compare.txt",
+            "CLOSE_PREF DONE": "close_preference_reason.txt",
         }
 
         target_file = file_map.get(pattern)

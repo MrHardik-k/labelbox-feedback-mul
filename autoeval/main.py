@@ -338,13 +338,14 @@ def parse_comparison(compare_file):
 
 
 def fill_comparison_form(driver, compare_file):
-    """Fill the comparison form by clicking rating buttons (1-8) for each axis."""
+    """Fill the comparison form by clicking rating buttons (1-8) for each axis.
+    Returns True if ratings were found and filled, False if no ratings found."""
     print("Filling comparison form...")
     ratings = parse_comparison(compare_file)
 
     if not ratings:
         print("Warning: No ratings found in comparison file")
-        return
+        return False
 
     print(f"  Parsed {len(ratings)} ratings: {ratings}")
 
@@ -456,6 +457,117 @@ def fill_comparison_form(driver, compare_file):
         time.sleep(0.5)  # Brief pause between clicks
 
     print("Comparison form filled.")
+    return True
+
+
+def parse_close_preference_reason(reason_file):
+    """Parse close_preference_reason.txt for the chosen reason and optional explanation.
+    
+    Expected format from Claude:
+        REASON: similar_quality | unable_to_judge | other
+        EXPLANATION: <text>   (only when REASON is 'other')
+    """
+    if not reason_file.exists():
+        return None, None
+    with open(reason_file, 'r', encoding='utf-8') as f:
+        content = f.read()
+
+    reason = None
+    explanation = None
+
+    # Match REASON line
+    reason_match = re.search(
+        r'REASON:\s*(similar_quality|unable_to_judge|other)',
+        content, re.IGNORECASE
+    )
+    if reason_match:
+        reason = reason_match.group(1).strip().lower()
+
+    # Match EXPLANATION line (everything after "EXPLANATION:")
+    explanation_match = re.search(
+        r'EXPLANATION:\s*(.+)',
+        content, re.DOTALL | re.IGNORECASE
+    )
+    if explanation_match:
+        explanation = explanation_match.group(1).strip()
+        # Clean up: take only the first meaningful paragraph
+        explanation = explanation.split('\n\n')[0].strip()
+
+    return reason, explanation
+
+
+def fill_close_preference(driver, reason, explanation=None):
+    """Fill the 'Why is this a close preference?' radio + optional textarea."""
+    print(f"  Filling close preference: reason={reason}, has_explanation={bool(explanation)}")
+
+    # Click the matching radio button by value attribute
+    result = driver.execute_script("""
+        var reason = arguments[0];
+        var explanation = arguments[1];
+
+        // Find and click the radio button with matching value
+        var radios = document.querySelectorAll('input[name="closePreferenceReason"]');
+        var clicked = false;
+        for (var i = 0; i < radios.length; i++) {
+            if (radios[i].value === reason) {
+                radios[i].scrollIntoView({block: 'center'});
+                radios[i].click();
+                clicked = true;
+                break;
+            }
+        }
+
+        if (!clicked) {
+            // Fallback: try clicking the label that contains the radio
+            var labels = document.querySelectorAll('label');
+            for (var j = 0; j < labels.length; j++) {
+                var radio = labels[j].querySelector('input[name="closePreferenceReason"]');
+                if (radio && radio.value === reason) {
+                    labels[j].click();
+                    clicked = true;
+                    break;
+                }
+            }
+        }
+
+        if (!clicked) return 'radio_not_found_' + reason;
+
+        // If reason is 'other' and we have an explanation, fill the textarea
+        if (reason === 'other' && explanation) {
+            // Wait a moment for textarea to appear
+            var textarea = document.querySelector('textarea[placeholder*="close preference"]');
+            if (!textarea) {
+                // Broader search
+                var allTextareas = document.querySelectorAll('textarea');
+                for (var t = 0; t < allTextareas.length; t++) {
+                    var ph = allTextareas[t].placeholder || '';
+                    if (ph.toLowerCase().indexOf('preference') !== -1 || 
+                        ph.toLowerCase().indexOf('describe') !== -1) {
+                        textarea = allTextareas[t];
+                        break;
+                    }
+                }
+            }
+            if (textarea) {
+                textarea.scrollIntoView({block: 'center'});
+                // Use native input setter to trigger React state updates
+                var nativeSetter = Object.getOwnPropertyDescriptor(
+                    window.HTMLTextAreaElement.prototype, 'value'
+                ).set;
+                nativeSetter.call(textarea, explanation);
+                textarea.dispatchEvent(new Event('input', {bubbles: true}));
+                textarea.dispatchEvent(new Event('change', {bubbles: true}));
+                return 'filled_other_with_explanation';
+            } else {
+                return 'radio_clicked_but_textarea_not_found';
+            }
+        }
+
+        return 'filled_' + reason;
+    """, reason, explanation or "")
+
+    print(f"  Close preference result: {result}")
+    return result
 
 
 # ============== Claude Control ==============
@@ -607,6 +719,70 @@ def save_task_time(folder_name, elapsed_minutes):
     print(f"Task time saved: {elapsed_minutes} min")
 
 
+def remove_last_task_entry(folder_name):
+    """Remove the last task entry from task_details.txt (when submit failed/duplicate UUID).
+    This undoes the save_task_start call for a task that was never actually submitted."""
+    submissions_dir = PROJECT_ROOT / "submissions" / "data" / folder_name
+    info_file = submissions_dir / "task_details.txt"
+
+    if not info_file.exists():
+        return
+
+    content = info_file.read_text(encoding='utf-8')
+    # Find the last entry pattern: "N) Task ID: ...\nStage UUID: ...\n" possibly with "Minutes: ...\n\n"
+    # We want to remove everything from the last "N)" to end
+    entries = list(re.finditer(r'^\d+\)', content, re.MULTILINE))
+    if not entries:
+        return
+
+    last_entry_start = entries[-1].start()
+    trimmed = content[:last_entry_start].rstrip()
+    if trimmed:
+        trimmed += '\n'
+
+    with open(info_file, 'w', encoding='utf-8') as f:
+        f.write(trimmed)
+    print(f"Removed last task entry from {info_file}")
+
+
+def verify_submit_success(driver, old_stage_uuid, max_retries=3, retry_interval=15):
+    """After clicking submit, verify the task actually changed by checking Stage UUID.
+    If same UUID persists, re-click submit.
+    Returns True if task transitioned (new UUID), False if stuck."""
+    for attempt in range(1, max_retries + 1):
+        print(f"  Verifying submission (attempt {attempt}/{max_retries})...")
+        time.sleep(retry_interval)
+
+        new_info = get_task_info(driver)
+        new_uuid = new_info.get('stage_uuid', 'N/A')
+
+        if new_uuid != old_stage_uuid:
+            print(f"  ✓ Task changed! Old UUID: {old_stage_uuid[:16]}... → New UUID: {new_uuid[:16]}...")
+            return True
+
+        print(f"  Same UUID detected ({new_uuid[:16]}...) — submit may have failed.")
+
+        if attempt < max_retries:
+            # Re-click submit
+            print(f"  Re-clicking Submit button...")
+            try:
+                submit_btn = driver.find_element(By.XPATH, '//button[@type="submit"]')
+                if submit_btn.is_enabled():
+                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", submit_btn)
+                    time.sleep(1)
+                    driver.execute_script("arguments[0].click();", submit_btn)
+                    print(f"  Re-clicked Submit!")
+                else:
+                    print(f"  Submit button is disabled, trying fallback...")
+                    fb = driver.find_element(By.XPATH, '//button[contains(., "Submit")]')
+                    driver.execute_script("arguments[0].click();", fb)
+            except NoSuchElementException:
+                print(f"  No Submit button found for retry")
+
+    print(f"  ✗ Submit verification failed after {max_retries} attempts.")
+    return False
+
+
 def click_skip_button(driver):
     """Click the Skip button to skip the current task on error."""
     try:
@@ -720,27 +896,69 @@ def main():
                 print(f"Saved Agent B to {agent_b_file} ({len(agent_b_text)} chars)")
 
                 # ══════════════════════════════════════
-                #  EVALUATE: Claude comparison (single command)
+                #  EVALUATE: Claude comparison (with retry)
                 # ══════════════════════════════════════
 
-                # Start fresh Claude CLI session
-                print(f"\n[T{task_count}-4] Starting Claude Code in new terminal...")
-                pty = create_subprocess_pty(str(EVAL_DIR))
+                MAX_EVAL_RETRIES = 2
+                eval_success = False
 
-                # Send single command with rules file reference + start working
-                print(f"\n[T{task_count}-5] Sending evaluation command to Claude...")
-                rules_path = "rules/both_agent_compare_rule.txt"
-                eval_msg = (
-                    f"Read @{rules_path} for your evaluation instructions. "
-                    "Then read the 3 input files from the input folder "
-                    "(input/initial_transcription.txt, input/agent_A_response.txt, input/agent_B_response.txt), "
-                    "evaluate both models across all 7 axes using the 1-8 scale as described in the rules, "
-                    "and save your formatted output to output/both_agent_compare.txt. "
-                    "Start working now. When completely done, output exactly: EVAL DONE"
-                )
-                send_claude_command(pty, eval_msg, "EVAL DONE", timeout=CLAUDE_EVAL_TIMEOUT)
+                for eval_attempt in range(1, MAX_EVAL_RETRIES + 1):
+                    # Start fresh Claude CLI session
+                    print(f"\n[T{task_count}-4] Starting Claude Code in new terminal (attempt {eval_attempt})...")
+                    if pty:
+                        pty.stop()
+                        pty = None
+                    pty = create_subprocess_pty(str(EVAL_DIR))
 
-                wait_for_eval_file(OUTPUT_DIR / "both_agent_compare.txt", "Evaluation", timeout_minutes=EVAL_FILE_MAX_WAIT)
+                    # Clear any stale output from previous attempt
+                    compare_output = OUTPUT_DIR / "both_agent_compare.txt"
+                    if compare_output.exists():
+                        compare_output.unlink()
+
+                    # Send single command with rules file reference + start working
+                    print(f"\n[T{task_count}-5] Sending evaluation command to Claude...")
+                    rules_path = "rules/both_agent_compare_rule.txt"
+                    eval_msg = (
+                        f"Read @{rules_path} for your evaluation instructions. "
+                        "Then read the 3 input files from the input folder "
+                        "(input/initial_transcription.txt, input/agent_A_response.txt, input/agent_B_response.txt), "
+                        "evaluate both models across all 7 axes using the 1-8 scale as described in the rules, "
+                        "and save your formatted output to output/both_agent_compare.txt. "
+                        "Start working now. When completely done, output exactly: EVAL DONE"
+                    )
+                    send_claude_command(pty, eval_msg, "EVAL DONE", timeout=CLAUDE_EVAL_TIMEOUT)
+
+                    wait_for_eval_file(compare_output, "Evaluation", timeout_minutes=EVAL_FILE_MAX_WAIT)
+
+                    # Check if ratings were actually parsed
+                    test_ratings = parse_comparison(compare_output)
+                    if test_ratings:
+                        print(f"  ✓ Evaluation produced {len(test_ratings)} ratings on attempt {eval_attempt}")
+                        eval_success = True
+                        break
+                    else:
+                        print(f"  ✗ No ratings found in evaluation output (attempt {eval_attempt}/{MAX_EVAL_RETRIES})")
+                        if eval_attempt < MAX_EVAL_RETRIES:
+                            print(f"  Restarting Claude CLI for retry...")
+                            if pty:
+                                pty.stop()
+                                pty = None
+                            # Clear output for retry
+                            run_empty_script()
+                            # Re-save input files (they were cleared by empty.py)
+                            INPUT_DIR.mkdir(parents=True, exist_ok=True)
+                            with open(INPUT_DIR / "initial_transcription.txt", 'w', encoding='utf-8') as f:
+                                f.write(initial_text)
+                            with open(INPUT_DIR / "agent_A_response.txt", 'w', encoding='utf-8') as f:
+                                f.write(agent_a_text)
+                            with open(INPUT_DIR / "agent_B_response.txt", 'w', encoding='utf-8') as f:
+                                f.write(agent_b_text)
+
+                if not eval_success:
+                    print(f"  ✗ Evaluation failed after {MAX_EVAL_RETRIES} attempts. Skipping task...")
+                    remove_last_task_entry(folder_name)
+                    click_skip_button(driver)
+                    continue
 
                 # ══════════════════════════════════════
                 #  FILL FORM: Rating buttons only
@@ -748,10 +966,65 @@ def main():
 
                 print(f"\n[T{task_count}-7] Filling comparison form...")
                 scroll_to_bottom(driver)
-                fill_comparison_form(driver, OUTPUT_DIR / "both_agent_compare.txt")
+                form_filled = fill_comparison_form(driver, OUTPUT_DIR / "both_agent_compare.txt")
+
+                if not form_filled:
+                    print("  Form filling failed — no ratings. Skipping task...")
+                    remove_last_task_entry(folder_name)
+                    click_skip_button(driver)
+                    continue
 
                 # ══════════════════════════════════════
-                #  WAIT: 60-70 minutes before submit
+                #  CLOSE PREFERENCE: If overall is 4 or 5
+                # ══════════════════════════════════════
+
+                ratings = parse_comparison(OUTPUT_DIR / "both_agent_compare.txt")
+                overall_score = ratings.get('overall', 0)
+
+                if overall_score in (4, 5):
+                    print(f"\n[T{task_count}-7b] Overall score is {overall_score} — handling close preference...")
+
+                    # Delete any stale close_preference_reason.txt
+                    close_pref_file = OUTPUT_DIR / "close_preference_reason.txt"
+                    if close_pref_file.exists():
+                        close_pref_file.unlink()
+
+                    # Ask Claude for a close-preference reason
+                    close_pref_msg = (
+                        "The overall preference score you gave is " + str(overall_score) + " which indicates a close preference. "
+                        "The feedback form is now asking: 'Why is this a close preference?' with these options:\n"
+                        "1. similar_quality - The responses are nearly identical in quality\n"
+                        "2. unable_to_judge - The responses differ, but I'm unable to judge which is better\n"
+                        "3. other - Other (requires a short explanation)\n\n"
+                        "Based on your evaluation, pick the most appropriate reason. "
+                        "Save your answer to output/close_preference_reason.txt in this exact format:\n"
+                        "REASON: <similar_quality OR unable_to_judge OR other>\n"
+                        "EXPLANATION: <only if REASON is other, provide a 1-2 sentence explanation>\n\n"
+                        "When completely done, output exactly: CLOSE_PREF DONE"
+                    )
+                    send_claude_command(pty, close_pref_msg, "CLOSE_PREF DONE", timeout=120)
+
+                    # Wait for the file
+                    wait_for_eval_file(close_pref_file, "Close Preference", timeout_minutes=3)
+                    time.sleep(2)  # brief delay for file to flush
+
+                    # Parse and fill
+                    reason, explanation = parse_close_preference_reason(close_pref_file)
+                    if reason:
+                        print(f"  Close preference reason: {reason}")
+                        if explanation:
+                            print(f"  Explanation: {explanation[:100]}")
+                        fill_close_preference(driver, reason, explanation)
+                        time.sleep(1)
+                    else:
+                        print("  Warning: Could not parse close preference reason, defaulting to 'similar_quality'")
+                        fill_close_preference(driver, "similar_quality")
+                        time.sleep(1)
+                else:
+                    print(f"  Overall score {overall_score} — no close preference needed.")
+
+                # ══════════════════════════════════════
+                #  WAIT: 60-70 minutes before confirm
                 # ══════════════════════════════════════
 
                 wait_min = random.randint(SUBMIT_WAIT_MIN, SUBMIT_WAIT_MAX)
@@ -759,42 +1032,42 @@ def main():
                 time.sleep(wait_min * 60)
 
                 # ══════════════════════════════════════
-                #  CONFIRM SELECTION
+                #  CONFIRM SELECTION (if present)
                 # ══════════════════════════════════════
 
-                print(f"\n[T{task_count}-9] Clicking 'Confirm selection'...")
+                print(f"\n[T{task_count}-9] Checking for 'Confirm selection' button...")
                 confirm_clicked = False
-                try:
-                    confirm_btn = driver.find_element(
-                        By.XPATH, '//button[contains(., "Confirm selection")]'
+
+                # Check if the button exists at all
+                confirm_buttons = driver.find_elements(
+                    By.XPATH, '//button[contains(., "Confirm selection")]'
+                )
+                if not confirm_buttons:
+                    # Fallback: match by class bg-indigo-600 + "Confirm"
+                    confirm_buttons = driver.find_elements(
+                        By.XPATH, '//button[contains(@class, "bg-indigo-600") and contains(., "Confirm")]'
                     )
+
+                if confirm_buttons:
+                    confirm_btn = confirm_buttons[0]
                     driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", confirm_btn)
                     time.sleep(1)
                     driver.execute_script("arguments[0].click();", confirm_btn)
                     print("Clicked 'Confirm selection'!")
                     confirm_clicked = True
-                except NoSuchElementException:
-                    print("Warning: 'Confirm selection' button not found, trying fallback...")
-                    # Fallback: match by class bg-indigo-600
-                    try:
-                        confirm_btn = driver.find_element(
-                            By.XPATH, '//button[contains(@class, "bg-indigo-600") and contains(., "Confirm")]'
-                        )
-                        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", confirm_btn)
-                        time.sleep(1)
-                        driver.execute_script("arguments[0].click();", confirm_btn)
-                        print("Clicked 'Confirm selection' (fallback)!")
-                        confirm_clicked = True
-                    except NoSuchElementException:
-                        print("Error: Could not find 'Confirm selection' button at all!")
 
-                # Wait 10 seconds after confirm before submit
-                print(f"[T{task_count}-10] Waiting 10 seconds after confirm...")
-                time.sleep(10)
+                    # Wait 10 seconds after confirm before submit
+                    print(f"[T{task_count}-10] Waiting 10 seconds after confirm...")
+                    time.sleep(10)
+                else:
+                    print("No 'Confirm selection' button found — skipping, submit should be enabled.")
 
                 # ══════════════════════════════════════
-                #  SUBMIT
+                #  SUBMIT + VERIFY
                 # ══════════════════════════════════════
+
+                # Capture current stage UUID BEFORE submit for verification
+                pre_submit_uuid = task_info.get('stage_uuid', 'N/A')
 
                 print(f"\n[T{task_count}-SUBMIT] Final submission...")
                 submit_xpath = '//button[@type="submit"]'
@@ -834,7 +1107,22 @@ def main():
                     except NoSuchElementException:
                         print("No Submit button found!")
 
-                # ── Save time on success ──
+                # ── Verify submission by checking UUID change ──
+                if submitted and pre_submit_uuid != 'N/A':
+                    submit_verified = verify_submit_success(driver, pre_submit_uuid)
+                    if not submit_verified:
+                        print("  ⚠ Submit verification FAILED — same stage UUID after retries.")
+                        print("  Removing stale task entry...")
+                        remove_last_task_entry(folder_name)
+                        # Don't record time — move to next iteration which will retry
+                        continue
+                elif not submitted:
+                    print("  Submit was never clicked — removing stale task entry...")
+                    remove_last_task_entry(folder_name)
+                    click_skip_button(driver)
+                    continue
+
+                # ── Save time ONLY on verified success ──
                 elapsed_minutes = round((time.time() - task_start_time) / 60)
                 save_task_time(folder_name, elapsed_minutes)
 
