@@ -393,15 +393,25 @@ def test_pywinpty(command, label, cwd=None, timeout=15, send_text=None):
 # ============================================================
 
 if __name__ == "__main__":
-    CLI_JS = r"C:\Users\Admin\AppData\Roaming\npm\node_modules\@anthropic-ai\claude-code\cli.js"
+    # Dynamically find Claude CLI
+    import shutil as _shutil
+    cli_js = _shutil.which("claude")
+    if cli_js:
+        npm_dir = os.path.dirname(cli_js)
+        cli_js = os.path.join(npm_dir, "node_modules", "@anthropic-ai", "claude-code", "cli.js")
+    if not cli_js or not os.path.exists(cli_js):
+        raise FileNotFoundError(
+            "Claude CLI not found. Install with: npm install -g @anthropic-ai/claude-code"
+        )
+
     EVAL_DIR = str(os.path.join(os.path.dirname(os.path.dirname(__file__)), "evaluation"))
 
     print("=" * 60)
     print("Claude PTY Control - Test Suite")
     print("=" * 60)
     print(f"eval dir: {EVAL_DIR}")
-    print(f"cli.js: {CLI_JS}")
-    print(f"cli.js exists: {os.path.exists(CLI_JS)}")
+    print(f"cli.js: {cli_js}")
+    print(f"cli.js exists: {os.path.exists(cli_js)}")
 
     results = {}
 
@@ -426,7 +436,7 @@ if __name__ == "__main__":
 
     # Test 3: ConPTY with Claude
     if results.get("conpty_cmd"):
-        claude_cmd = f'cmd.exe /c node "{CLI_JS}" --model=opus --thinking=enabled'
+        claude_cmd = f'cmd.exe /c node "{cli_js}" --model=opus --thinking=enabled'
         results["conpty_claude"] = test_conpty(
             claude_cmd,
             "ConPTY with Claude CLI",
@@ -447,7 +457,7 @@ if __name__ == "__main__":
 
     # Test 5: pywinpty with Claude
     if results.get("pywinpty_echo"):
-        claude_cmd = f'cmd.exe /c node "{CLI_JS}" --model=opus --thinking=enabled'
+        claude_cmd = f'cmd.exe /c node "{cli_js}" --model=opus --thinking=enabled'
         results["pywinpty_claude"] = test_pywinpty(
             claude_cmd,
             "pywinpty with Claude CLI",

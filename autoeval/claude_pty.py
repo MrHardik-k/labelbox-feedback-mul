@@ -17,6 +17,7 @@ from config import CLAUDE_INIT_WAIT, EVAL_FILE_POLL_INTERVAL
 import pyautogui
 import ctypes
 import ctypes.wintypes
+import shutil
 
 
 # Windows API for window management
@@ -106,6 +107,52 @@ def bring_chrome_to_front():
 # Claude Controller
 # ============================================================
 
+_CLAUDE_PACKAGE = "@anthropic-ai/claude-code"
+_CLAUDE_SCRIPT = "cli.js"
+
+
+def _find_claude_cli():
+    """Find the Claude CLI js file dynamically."""
+    # Try to resolve from PATH first
+    exe_path = shutil.which("claude")
+    if exe_path:
+        # claude is a .cmd batch file on Windows, dirname gives the npm directory
+        npm_dir = os.path.dirname(exe_path)
+        # node_modules is a sibling of the .cmd file (C:\Users\...\npm\node_modules)
+        node_modules = os.path.join(npm_dir, "node_modules", _CLAUDE_PACKAGE, _CLAUDE_SCRIPT)
+        if os.path.exists(node_modules):
+            return node_modules
+        # Fallback: node_modules at the parent level (C:\Users\...\node_modules)
+        node_modules2 = os.path.join(npm_dir, "..", "node_modules", _CLAUDE_PACKAGE, _CLAUDE_SCRIPT)
+        node_modules2 = os.path.normpath(node_modules2)
+        if os.path.exists(node_modules2):
+            return node_modules2
+
+    # Fallback: resolve from npm global root (use shell=True for .cmd on Windows)
+    try:
+        result = subprocess.run(
+            "npm root -g",
+            capture_output=True, text=True, timeout=10, shell=True
+        )
+        if result.returncode == 0:
+            root = result.stdout.strip()
+            cli = os.path.join(root, _CLAUDE_PACKAGE, _CLAUDE_SCRIPT)
+            if os.path.exists(cli):
+                return cli
+    except Exception:
+        pass
+
+    raise FileNotFoundError("Claude CLI not found. Install with: npm install -g @anthropic-ai/claude-code")
+
+
+def _find_git_bash():
+    """Find git bash executable dynamically."""
+    bash = shutil.which("bash")
+    if bash and os.path.exists(bash):
+        return bash
+    return None
+
+
 def create_subprocess_pty(cwd=None):
     """Create and start a Claude controller."""
     ctrl = ClaudeController(str(cwd) if cwd else os.getcwd())
@@ -126,14 +173,15 @@ class ClaudeController:
 
     def start(self):
         """Launch Claude Code in a new visible console window."""
-        cli_js = r"C:\Users\Admin\AppData\Roaming\npm\node_modules\@anthropic-ai\claude-code\cli.js"
-        git_bash = r"D:\All Apps\Git\Git\bin\bash.exe"
+        cli_js = _find_claude_cli()
+        git_bash = _find_git_bash()
 
-        if not os.path.exists(cli_js):
-            raise FileNotFoundError(f"Claude CLI not found: {cli_js}")
+        print(f"[Claude] Using CLI: {cli_js}")
+        if git_bash:
+            print(f"[Claude] Using git bash: {git_bash}")
 
         env = os.environ.copy()
-        if os.path.exists(git_bash):
+        if git_bash:
             env["CLAUDE_CODE_GIT_BASH_PATH"] = git_bash
 
         # Snapshot existing window handles BEFORE launching
@@ -207,7 +255,7 @@ class ClaudeController:
 
         # Use clipboard paste for reliability (handles any characters)
         try:
-            proc = subprocess.run(
+            subprocess.run(
                 ['clip'],
                 input=text.encode('utf-8'),
                 check=True,
