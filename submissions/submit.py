@@ -89,6 +89,16 @@ def process_tasks(target_file):
         return
 
     print(f"Found {len(pending_tasks)} pending task(s) to process.")
+
+    # --- Autosubmit Prompt ---
+    print("\n🚀 Autosubmit mode will automatically click 'Submit' and wait for confirmation.")
+    autosubmit_choice = input("👉 Enable autosubmit? (y/n): ").strip().lower()
+    autosubmit = autosubmit_choice == 'y'
+    if autosubmit:
+        print("✅ Autosubmit ENABLED — forms will be submitted automatically.")
+    else:
+        print("ℹ️ Autosubmit DISABLED — you will submit each form manually.")
+    # -------------------------
     
     # --- Chrome Kill Prompt to prevent crashes ---
     print("\n⚠️ Selenium requires Chrome to be completely closed to use your personal profile.")
@@ -136,8 +146,49 @@ def process_tasks(target_file):
                     time.sleep(0.2) 
             
             print(f"Task {task['task_num']} populated in browser.")
-            
-            input("👉 Submit the form in your browser, then press ENTER here to mark it as done...")
+
+            if autosubmit:
+                submitted = False
+                for attempt in range(2):  # Try up to 2 attempts
+                    try:
+                        if attempt > 0:
+                            print(f"🔄 Retry attempt {attempt}... reloading form.")
+                            driver.get(FORM_URL)
+                            WebDriverWait(driver, 10).until(
+                                EC.presence_of_all_elements_located((By.CSS_SELECTOR, "input[type='text'], input[type='email'], textarea"))
+                            )
+                            inputs = driver.find_elements(By.CSS_SELECTOR, "input[type='text'], input[type='email'], input[type='number'], textarea")
+                            visible_inputs = [inp for inp in inputs if inp.is_displayed()]
+                            for i, value in enumerate(task['data']):
+                                if i < len(visible_inputs) and value:
+                                    visible_inputs[i].click()
+                                    visible_inputs[i].clear()
+                                    visible_inputs[i].send_keys(value)
+                                    time.sleep(0.2)
+
+                        # Find and click the Google Form submit button
+                        submit_button = WebDriverWait(driver, 10).until(
+                            EC.element_to_be_clickable((By.CSS_SELECTOR, "div[role='button'][jsname='M2UYVd'], div[role='button'][jsname='LgbsSe']"))
+                        )
+                        submit_button.click()
+                        print("⏳ Submitting form... waiting for confirmation page...")
+
+                        # Wait until the confirmation message appears
+                        WebDriverWait(driver, 30).until(
+                            EC.presence_of_element_located((By.CSS_SELECTOR, ".freebirdFormviewerViewResponseConfirmationMessage, .vHW8K"))
+                        )
+                        print("✅ Form submitted successfully!")
+                        submitted = True
+                        time.sleep(1)
+                        break
+                    except Exception as e:
+                        print(f"⚠️ Attempt {attempt + 1} failed: {e}")
+
+                if not submitted:
+                    print(f"❌ Skipping Task {task['task_num']} after 2 failed attempts.")
+                    continue  # Skip to the next task without marking ✔️
+            else:
+                input("👉 Submit the form in your browser, then press ENTER here to mark it as done...")
 
             # Dynamically replace the specific task to add the checkmark
             with open(target_file, 'r', encoding='utf-8') as f:
