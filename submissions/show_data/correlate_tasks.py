@@ -8,10 +8,24 @@ import os
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 SUBMITTED_IDS_FILE = os.path.join(BASE_DIR, 'submitted_ids.txt')
-HARDIK_FILE = os.path.join(BASE_DIR, "..", 'data', 'hardik', 'task_details.txt')
-ARPIL_FILE = os.path.join(BASE_DIR, "..", 'data', 'arpil', 'task_details.txt')
-SUJAL_FILE = os.path.join(BASE_DIR, "..", 'data', 'sujal', 'task_details.txt')
+DATA_DIR = os.path.join(BASE_DIR, '..', 'data')
 OUTPUT_FILE = os.path.join(BASE_DIR, 'combined_tasks.csv')
+
+def discover_workers():
+    """Dynamically discovers all user folders inside the data directory."""
+    workers = []
+    if not os.path.isdir(DATA_DIR):
+        print(f"⚠️ Warning: Data directory not found: {DATA_DIR}")
+        return workers
+    for folder_name in sorted(os.listdir(DATA_DIR)):
+        folder_path = os.path.join(DATA_DIR, folder_name)
+        task_file = os.path.join(folder_path, 'task_details.txt')
+        if os.path.isdir(folder_path) and os.path.isfile(task_file):
+            workers.append({
+                'name': folder_name.capitalize(),
+                'file': task_file
+            })
+    return workers
 # ==========================================
 
 def parse_worker_file(filepath, worker_name):
@@ -61,12 +75,17 @@ def parse_submitted_ids(filepath):
     return submitted_data
 
 def main():
-    # 1. Parse worker files
+    # 1. Discover and parse worker files dynamically
+    workers = discover_workers()
+    if workers:
+        print(f"Found {len(workers)} worker(s): {', '.join(w['name'] for w in workers)}")
+    else:
+        print("⚠️ No worker folders found in the data directory.")
+
     print("Parsing worker files...")
     all_worker_tasks = {}
-    all_worker_tasks.update(parse_worker_file(HARDIK_FILE, 'Hardik'))
-    all_worker_tasks.update(parse_worker_file(ARPIL_FILE, 'Arpil'))
-    all_worker_tasks.update(parse_worker_file(SUJAL_FILE, 'Sujal'))
+    for worker in workers:
+        all_worker_tasks.update(parse_worker_file(worker['file'], worker['name']))
 
     # 2. Parse submitted IDs file
     print("Parsing submitted IDs...")
