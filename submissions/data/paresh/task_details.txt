@@ -102,10 +102,10 @@ Minutes: 65
 Stage UUID: f1d89105-cd17-42be-9de4-326e16f3d6f6
 Minutes: 69
 
-27) Task ID: 08cbbe23-b612-4938-a01d-b13fa0f383cf • Worker: 211lx0nzy211ly0njk@mail.alignerr.com
+27) (✔️) Task ID: 08cbbe23-b612-4938-a01d-b13fa0f383cf • Worker: 211lx0nzy211ly0njk@mail.alignerr.com
 Stage UUID: ecef8a52-59d2-4132-94ae-1aaca0946d39
 Minutes: 68
 
-28) Task ID: cc5262c5-429e-4d27-bbec-4bb3f7e8b447 • Worker: 211lx0nzy211ly0njk@mail.alignerr.com
+28) (✔️) Task ID: cc5262c5-429e-4d27-bbec-4bb3f7e8b447 • Worker: 211lx0nzy211ly0njk@mail.alignerr.com
 Stage UUID: 23d7e8f3-3789-41bb-a8fc-2a38347c58e8
 Minutes: 69
