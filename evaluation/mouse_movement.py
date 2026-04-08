@@ -1,9 +1,7 @@
 import pyautogui
 import random
 import time
-
-# Failsafe: moving your physical mouse to any of the 4 corners of your screen will abort the script
-pyautogui.FAILSAFE = True
+import threading
 
 def random_sleep(min_time=1, max_time=5):
     """Pauses the script for a random amount of time to simulate reading or thinking."""
@@ -47,19 +45,73 @@ def human_like_scroll():
         # Tiny pause between scroll ticks
         time.sleep(random.uniform(0.1, 0.4))
 
+# --- User mouse monitoring ---
+user_active = False
+user_last_move_time = time.time()
+paused_for_user = False
+MONITOR_INTERVAL = 0.1  # seconds
+INACTIVITY_THRESHOLD = 3.0  # seconds to wait before resuming
+
+def get_mouse_position():
+    """Get current mouse position."""
+    return pyautogui.position()
+
+def monitor_user_mouse():
+    """Background thread: detects if user is moving the mouse."""
+    global user_active, user_last_move_time, paused_for_user
+    prev_pos = get_mouse_position()
+    while True:
+        time.sleep(MONITOR_INTERVAL)
+        curr_pos = get_mouse_position()
+        if curr_pos != prev_pos:
+            user_active = True
+            user_last_move_time = time.time()
+        else:
+            user_active = False
+        prev_pos = curr_pos
+
+def start_monitoring():
+    """Start the user mouse monitoring thread."""
+    t = threading.Thread(target=monitor_user_mouse, daemon=True)
+    t.start()
+    return t
+
 def main():
+    global paused_for_user
     print("Starting human-like random mouse script.")
-    print("IMPORTANT: Drag your mouse to any corner of the screen to trigger the failsafe and stop the script, or press Ctrl+C in this terminal.")
-    
+    print("IMPORTANT: Press Ctrl+C in this terminal to stop.")
+    print("The script will pause when you move your mouse and resume after 3 seconds of inactivity.\n")
+
+    # Start monitoring user mouse movement
+    start_monitoring()
+
     # Give the user a moment to switch windows if needed
-    time.sleep(1) 
+    time.sleep(1)
 
     try:
         while True:
+            # Check if user is actively moving mouse
+            if user_active:
+                if not paused_for_user:
+                    print("User mouse movement detected — pausing script.")
+                    paused_for_user = True
+                time.sleep(MONITOR_INTERVAL)
+                continue
+
+            # Resume if user stopped moving for INACTIVITY_THRESHOLD seconds
+            if paused_for_user:
+                elapsed = time.time() - user_last_move_time
+                if elapsed >= INACTIVITY_THRESHOLD:
+                    print("User inactive for 3 seconds — resuming script.")
+                    paused_for_user = False
+                else:
+                    time.sleep(MONITOR_INTERVAL)
+                    continue
+
             # Decide randomly what the "human" does next
             action = random.choices(
                 ['move', 'scroll', 'idle'],
-                weights=[0.2, 0.7, 0.1], # 60% chance to move, 30% scroll, 10% just wait
+                weights=[0.5, 0.5, 0.0],
                 k=1
             )[0]
 
@@ -68,15 +120,13 @@ def main():
             elif action == 'scroll':
                 human_like_scroll()
             elif action == 'idle':
-                pass # Do nothing, just let the next sleep happen
+                pass  # Do nothing, just let the next sleep happen
 
-            # Random pause between main actions (simulating reading, thinking, watching a video, etc.)
-            random_sleep(1, 4)
+            # Random pause between main actions
+            random_sleep(0.5, 2)
 
     except KeyboardInterrupt:
         print("\nScript stopped manually via Ctrl+C.")
-    except pyautogui.FailSafeException:
-        print("\nFailsafe triggered! Script stopped because the mouse was moved to a screen corner.")
 
 if __name__ == "__main__":
     main()
